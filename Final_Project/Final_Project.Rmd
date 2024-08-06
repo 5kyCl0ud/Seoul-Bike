@@ -1,0 +1,2843 @@
+---
+title: "Đồ án Cuối kì môn Mô Hình Thống Kê Tuyến Tính Nâng Cao"
+subtitle: "Seoul Bike Data Processing"
+author:
+  - Nhóm D^[Hồ Phạm Nghĩa Phương, Đàm Thị Hà, Đoàn Thị Kỳ Duyên, Trường Đại học Khoa học Tự nhiên, Đại học Quốc gia Thành phố Hồ Chí Minh.]
+documentclass: article
+papersize: letter
+fontsize: 11pt
+output: 
+  bookdown::pdf_document2
+---
+\centering
+\includegraphics[width=10cm]{logo.jpg} 
+\raggedright
+\clearpage
+\tableofcontents
+
+\clearpage
+```{r setup, echo = FALSE, warning = FALSE}
+
+# Set global chunk options
+knitr::opts_chunk$set( fig.align = "center",fig.pos = "H", out.extra = "")
+
+```
+
+\section{Nguồn gốc dữ liệu}
+
+Hiện nay, dịch vụ cho thuê xe đạp được giới thiệu ở nhiều thành phố đô thị nhằm nâng cao sự thoải mái khi di chuyển. Điều quan trọng là phải cung cấp xe đạp cho thuê và công chúng có thể tiếp cận vào đúng thời điểm vì nó giúp giảm thời gian chờ đợi. Cuối cùng, việc cung cấp cho thành phố nguồn cung cấp xe đạp cho thuê ổn định trở thành mối quan tâm lớn. Phần quan trọng là dự đoán số lượng xe đạp cần thiết mỗi giờ để cung cấp xe đạp cho thuê ổn định. Bộ dữ liệu chứa thông tin thời tiết (Nhiệt độ, Độ ẩm, Tốc độ gió, Tầm nhìn, Điểm sương, Bức xạ mặt trời, Lượng tuyết rơi, Lượng mưa), số lượng xe đạp được thuê mỗi giờ và thông tin ngày. Dữ liệu *Seoul* trong giai đoạn 01/12/2017 tới 30/11/2018, với các biến được quan sát sau:
+
+```{=tex}
+\begin{itemize}
+  \item Date: ngày thu thập dữ liệu: year-month-day  
+  \item Rented Bike count: lượng xe đạp được thuê mỗi giờ  
+  \item Hour: giờ trong ngày  
+  \item Temperature: nhiệt độ ($^{\circ}$C)  
+  \item Humidity: độ ẩm (\%)  
+  \item Windspeed: tốc độ gió (m/s)  
+  \item Visibility: tầm nhìn (10m)  
+  \item Dew point temperature: nhiệt độ ngưỡng tạo sương mù ($^{\circ}$C)  
+  \item Solar radiation: bức xạ năng lượng mặt trời (MJ/$m^2$)  
+  \item Rainfall: lượng mưa trong ngày (mm)  
+  \item Snowfall: lượng tuyết rơi trong ngày (cm)  
+  \item Seasons: mùa (Winter, Spring, Summer, Autumn)  
+  \item Holiday: ngày nghỉ hoặc không (Holiday/ No holiday)  
+  \item Functional Day: ngày làm NoFunc(Non Functional Hours), Fun(Functional hours)  
+\end{itemize}
+```
+```{=tex}
+\section{Mục tiêu}
+\begin{itemize}
+    \item Xây dựng mô hình dự đoán số lượng xe đạp được thuê trong ngày dựa trên thông tin của một ngày (thời tiết, tính chất ngày nghỉ/làm việc), đưa ra mô hình khác nhau, tìm ra mô hình tốt nhất.
+    \item Sử dụng mô hình tốt nhất, thu được trong phần trên, hãy dự đoán số lượng thuê xe trong ngày ở Seoul. So sánh với thực tế
+\end{itemize}
+\section{Các phương pháp phân tích và chiến lược cho mỗi mục tiêu đề ra}
+\begin{itemize}
+    \item Trước mắt sẽ tập trung xây dựng mô hình hồi quy Poisson, nếu mô hình không phù hợp thì sẽ chuyển sang lựa chọn khác thay thế (mô hình Quasi-Poisson)
+    \item Thực hiện dự đoán lượng xe được thuê trong một ngày từ dữ liệu đã cho và so sánh giá trị dự đoán với dữ liệu.
+\end{itemize}
+```
+```{r library, results = 'hide', message = FALSE, warning = FALSE, echo=FALSE}
+library(ggplot2)
+library(janitor)
+library(tidyverse)
+library(leaps)
+library(reshape2)
+```
+
+
+```{r Importing Data, message=FALSE, warning=FALSE, echo=FALSE}
+library(rio)
+raw_data <- read_csv(file = "datasets/SeoulBikeData.csv", locale = locale(encoding="latin1")) |> 
+  clean_names() 
+
+data <- raw_data |> 
+  mutate(date = dmy(date), 
+         hour = factor(hour),
+         holiday = factor(holiday),
+         functioning_day = factor(functioning_day)) |> 
+  mutate(year = year(date),
+         month = factor(month(date)),
+         day = factor(day(date)),
+         day_of_week = wday(date, label = TRUE)) |> 
+  mutate(year = factor(year, ordered = TRUE, levels = c("2017", "2018")),  
+         seasons = factor(seasons, ordered = TRUE, levels = c("Spring", "Summer"
+                                                              , "Autumn", "Winter"))) 
+```
+
+\section{Trực quan hóa}
+
+```{r echo=FALSE,  out.width = "120%"}
+count_data <- data.frame(table(data$functioning_day))
+names(count_data) <- c("functioning_day", "count")
+count_data$percent <- count_data$count / sum(count_data$count)*100
+count_data <- count_data |> 
+  arrange(desc(functioning_day)) |> 
+  mutate(ypos = cumsum(percent) - 0.5 * percent)
+ggplot(count_data, aes(x = "", y = percent, fill = functioning_day)) + 
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +  
+  geom_text(aes(y = ypos, label = paste0(functioning_day, ": ", round(percent, 1), "%")), 
+            position = position_nudge(x = 1), hjust = 0.5) +  
+  labs(title = "Functioning Day Percent (%)",
+       fill = "functioning_day") +  
+  theme_void() +  
+  theme(plot.title = element_text(hjust = 0.5))  
+```
+
+\textbf{Nhận xét:} Theo biểu đồ tròn, trạm xe hoạt động rất tích cực (97% khoảng thời gian lấy mẫu). Ngoài ra, điều này cho thấy biến functioning_day có giá trị No gần như quá ít ỏi so với giá trị Yes khiến biến này không có ý nghĩa khi xây dựng mô hình.
+
+```{r echo=FALSE, out.width = "120%"}
+ggplot(data = data, aes(x = month, y = rented_bike_count, fill = seasons)) +
+  geom_boxplot() +
+  facet_wrap(~ year) +
+  ggtitle("Hourly Rented Bike Count by Month") +
+  xlab("Month") +
+  ylab("Rented Bike Count")
+```
+
+\textbf{Nhận xét:}
+
+```{=tex}
+\begin{itemize}
+\item Dữ liệu được thu thập  trong khoảng thời gian từ đầu tháng 12 năm 2017 đến hết tháng 11 năm 2018 (tròn 12 tháng).
+\item Bốn mùa trong năm ở Hàn Quốc (cụ thể là Seoul) được định nghĩa khác so với văn hóa của ta. Cụ thể là cứ theo chu kỳ 3 tháng sẽ là 1 mùa ,nhưng mùa đông sẽ bắt đầu vào đầu tháng 12 chứ không phải vào đầu tháng 10 như theo quan niệm bình thường.
+\item Tháng có số lượng xe thuê ít nhất là vào tháng 1 của mùa đông năm 2018 và cao nhất là vào tháng 6 của mùa hè năm 2018.
+\end{itemize}
+```
+```{r echo=FALSE, out.width = "120%"}
+ggplot(data = data, aes(x = seasons, y = rented_bike_count, fill = seasons)) +
+  geom_boxplot() +
+  ggtitle("Hourly Rented Bike Count by Seasons") +
+  ylab("Rented Bike Count") 
+```
+
+\textbf{Nhận xét:} Số xe đạp được thuê mỗi giờ được ghi nhận nhiều nhất là vào mùa hè , thấp nhất là vào mùa đông.
+
+```{r echo=FALSE, out.width = "120%"}
+ggplot(data = data, aes(x = holiday, y = rented_bike_count, fill = holiday)) +
+  geom_boxplot() +
+  ggtitle("Hourly Rented Bike Count by Holiday") +
+  xlab("Holiday") +
+  ylab("Rented Bike Count") 
+```
+
+\textbf{Nhận xét:} Số xe đạp được thuê vào ngày lễ thấp hơn so với ngày không nghỉ lễ. Có vẻ nhiều khách thuê xe để đi làm và đi học chứ họ không thuê xe đạp vào lúc rảnh rỗi.
+
+```{r echo=FALSE, out.width = "120%"}
+ggplot(data = data, aes(x = hour, y = rented_bike_count, fill = hour)) +
+  geom_boxplot() +
+  ggtitle("Hourly Rented Bike Count by Hour") +
+  xlab("Hour of Day") +
+  ylab("Rented Bike Count") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+\textbf{Nhận xét:} Có vẻ như thời điểm 8 giờ sáng và 6 giờ tối là giờ thuê xe đạp cao điểm (thời điểm bắt đầu di làm va thời điểm tan ca).
+
+```{r echo=FALSE, out.width = "120%"}
+ggplot(data = data, aes(x = day_of_week, y = rented_bike_count, fill = day_of_week)) +
+  geom_boxplot() +
+  ggtitle("Hourly Rented Bike Count by Day Of Week") +
+  xlab("Day Of Week") +
+  ylab("Rented Bike Count")
+```
+
+\textbf{Nhận xét:} Số lượng thuê xe đạp vào các ngày cuối tuần thấp hơn (thứ bảy, chủ nhật) so với các ngày còn lai. Chứng tỏ tệp khách hàng đi xe đạp có thể là học sinh, sinh viên, người đi làm.
+
+```{r echo=FALSE, out.width = "120%"}
+library(dplyr)
+data_2 <- data |> mutate(temperature_c_gps = cut_number(temperature_c, n = 10))
+ggplot(data = data_2, aes(x = temperature_c_gps, y = rented_bike_count, fill = temperature_c_gps)) +
+  geom_boxplot() +
+  ggtitle("Hourly Rented Bike Count by Temperature") +
+  xlab("Temperature (Celsius)") +
+  ylab("Rented Bike Count") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+\textbf{Nhận xét:} Ta thấy vào khoảng nhiệt độ từ gần 24 độ đến 28 độ sẽ có trung bình lượng xe đạp được thuê nhiều nhất. Ta thấy ở nhiệt độ thấp nhất thì trung bình lượng xe đạp được thuê rất thấp và tăng dần khi nhiệt độ tăng.
+
+```{r echo=FALSE, out.width = "120%"}
+data_2 <- data |> mutate(mua = cut(rainfall_mm, breaks = c(-Inf, 0, 2.5, 7.6, Inf),
+                                  labels = c("No Rain", "Light Rain", "Moderate Rain", "Heavy Rain")))
+ggplot(data = data_2, aes(x = mua, y = rented_bike_count, fill = mua)) +
+  geom_boxplot() +
+  ggtitle("Hourly Rented Bike Count by Rainfall") +
+  xlab("Rainfall") +
+  ylab("Rented Bike Count") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+\textbf{Nhận xét:} Vào những khi trời không có mưa, lượng xe đạp được thuê rất cao, khi bắt đầu có mưa thì lượng xe đạp được thuê ít hẳn đi rất nhiều.
+
+```{r echo=FALSE, out.width = "120%"}
+data_2 <- data |> mutate(snow = cut(snowfall_cm, 
+                                  breaks = c(-Inf, 0, 1, 5, Inf),
+                                  labels = c("No Snow", "Light Snow", "Moderate Snow", "Heavy Snow")))
+ggplot(data = data_2, aes(x = snow, y = rented_bike_count, fill = snow)) +
+  geom_boxplot() +
+  ggtitle("Hourly Rented Bike Count by Rainfall") +
+  xlab("Rainfall") +
+  ylab("Rented Bike Count") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+\textbf{Nhận xét:} Cũng như lượng mưa, số luợng xe được thuê khi không có tuyết là rất nhiều, và giảm hẳn khi tuyết bắt đầu rơi.
+\newpage
+
+```{=tex}
+\section{Làm sạch dữ liệu}
+\subsection{Giá trị khuyết}
+```
+```{r echo=FALSE}
+# Tính tổng số giá trị NA cho mỗi biến
+missing_data <- sapply(data, function(x) sum(is.na(x)))
+
+# Tạo data.frame với hai dòng: tên biến và tổng số NA
+missing_data_df <- data.frame(
+  t(cbind(names(missing_data), as.character(missing_data)))
+)
+
+# Đổi tên cột thành NULL để không có tên cột
+colnames(missing_data_df) <- NULL
+
+# Thay đổi tên hàng
+rownames(missing_data_df) <- c("Variables", "NA Value Count")
+
+# In ra data.frame
+print(missing_data_df)
+```
+
+\textbf{Nhận xét:} Dữ liệu không có giá trị khuyết
+
+\subsection{Giá trị ngoại lai}
+
+Nhóm em nhận thấy có thể xử lý ngoại lai theo 2 cách:
+
+```{=tex}
+\begin{itemize}
+\item Với ngoại lai đơn biến (univariate outlier) có thể phát hiện chúng dựa trên giá trị chuẩn hóa z score.
+\item Với ngoại lai nhiều chiều (multivariate outlier) có thể phát hiện dựa trên khoảng cách mahalanobis.
+\end{itemize}
+```
+
+Phương pháp dò tìm và xử lý giá trị ngoại lai ở mục này dựa trên mục \textbf{4.7. Detecting Outliers and Cleaning Data} trong sách Applied Multivariate Statistical Analysis của Richard Johnson và Dean Wichern và \textbf{Fig. 1.6.} trong sách An Introduction to Applied Multivariate Analysis with R của Brian Everitt và Torsten Hothorn.
+
+\subsubsection{Kiểm tra dấu hiệu ngoại lai đơn biến}
+
+```{r Univariate Outlier Check, echo=FALSE, out.width = "120%"}
+# Loại bỏ các cột không cần thiết
+plot_data <- raw_data[,-c(1,3,12,13,14)]
+
+# Chuyển dữ liệu từ wide format sang long format sử dụng reshape2
+long_data <- melt(plot_data, id.vars = NULL)
+
+# Tạo và hiển thị từng biểu đồ cho mỗi biến
+variables <- unique(long_data$variable)
+# Đảm bảo tất cả các giá trị trong cột 'value' là số
+long_data$value <- as.numeric(long_data$value)
+
+# Tạo và hiển thị từng biểu đồ cho mỗi biến
+variables <- unique(long_data$variable)
+
+for (var in variables) {
+  # Lọc dữ liệu cho biến hiện tại và loại bỏ các giá trị NA
+  data_var <- subset(long_data, variable == var & !is.na(value))
+  
+  p <- ggplot(data_var, aes(x = variable, y = value)) +
+    geom_jitter(width = 0.2, height = 0, alpha = 0.5) +
+    labs(title = paste("Dotplot with Jitter for", var),
+         x = var, y = "Value") +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    scale_y_continuous(limits = c(min(data_var$value, na.rm = TRUE), max(data_var$value, na.rm = TRUE)),
+                       breaks = pretty(data_var$value, n = 10))
+  
+  # Hiển thị biểu đồ
+  print(p)
+}
+```
+
+\textbf{Nhận xét:} Có dấu hiệu outlier đơn biến. Thấy rõ nhất ở các biến rented\_bike\_count, humidity\_percent, wind\_speed\_m\_s, rainfall\_mm, snowfall\_cm.
+
+\subsubsection{Kiểm tra dấu hiệu ngoại lai nhiều chiều}
+
+```{r Multivariate Outlier check, echo=FALSE,out.width = "120%" }
+numeric_data <- raw_data[,-c(1,12,13,14)]
+# Compute column means and covariance matrix
+cm <- colMeans(numeric_data)
+S <- cov(numeric_data)
+
+# Compute Mahalanobis distances
+d <- apply(numeric_data, 1, function(x) t(x - cm) %*% solve(S) %*% (x - cm))
+
+# Convert distances to a data frame
+dist_data <- data.frame(distances = d)
+
+# Create the Q-Q plot
+ggplot(dist_data, aes(sample = distances)) +
+  stat_qq(distribution = qchisq, dparams = list(df = 10)) +
+  stat_qq_line(distribution = qchisq, dparams = list(df = 10), linetype = "dashed", color = "red") +
+  ggtitle("Chi-Square Q-Q Plot of Mahalanobis Distances") +
+  xlab(expression(paste(chi[10]^2, " Quantile"))) +
+  ylab("Ordered distances") +
+  theme_minimal()
+```
+
+\textbf{Nhận xét:} Dữ liệu rõ ràng có dấu hiệu chứa giá trị ngoại lai nhiều chiều do có điểm nằm cách biệt so với phần còn lại.
+
+
+```{r echo=FALSE}
+# Chọn các biến số để phân tích và loại bỏ các biến không cần thiết
+numeric_data <- raw_data[,-c(1,12,13,14)]
+
+# Tính giá trị chuẩn hóa cho các biến số
+standardized_data <- numeric_data |> 
+  mutate(across(everything(), ~ (.- mean(.)) / sd(.), .names = "z_{col}"))
+
+# Tính khoảng cách Mahalanobis
+means <- colMeans(numeric_data)
+cov_matrix <- cov(numeric_data)
+mahalanobis_distances <- mahalanobis(numeric_data, means, cov_matrix)
+
+# Thêm khoảng cách Mahalanobis vào dữ liệu
+data_with_distances <- standardized_data |> 
+  mutate(mahalanobis_distances = mahalanobis_distances)
+
+# Xác định các giá trị ngoại lai dựa trên giá trị chuẩn hóa
+z_threshold <- 4
+chi_sq_threshold <- qchisq(0.95, df = ncol(numeric_data))
+
+# Xác định các giá trị ngoại lai dựa trên giá trị chuẩn hóa
+outliers_standardized <- data_with_distances |> 
+  rowwise() |> 
+  mutate(is_outlier_standardized = any(c_across(starts_with("z_")) 
+                                       > z_threshold | c_across(starts_with("z_"))
+                                       < -z_threshold)) |> ungroup()
+
+# Xác định các giá trị ngoại lai dựa trên khoảng cách Mahalanobis
+outliers_mahalanobis <- outliers_standardized |>
+  mutate(is_outlier_mahalanobis = mahalanobis_distances > chi_sq_threshold)
+
+# Kết hợp các cờ ngoại lai
+combined_outliers <- outliers_mahalanobis |>
+  mutate(is_outlier = is_outlier_standardized | is_outlier_mahalanobis)
+
+cleaned_data <- raw_data[!combined_outliers$is_outlier, ] |>
+  mutate(hour = data$hour[!combined_outliers$is_outlier],
+         day = data$day[!combined_outliers$is_outlier],
+         month = data$month[!combined_outliers$is_outlier],
+         year = data$year[!combined_outliers$is_outlier],
+         day_of_week = data$day_of_week[!combined_outliers$is_outlier],
+         seasons = data$seasons[!combined_outliers$is_outlier],
+         holiday = data$holiday[!combined_outliers$is_outlier],
+         functioning_day = data$functioning_day[!combined_outliers$is_outlier]) 
+cleaned_data = cleaned_data[,-1]# Loại bỏ biến date nếu nó vẫn còn
+
+# Kiểm tra lại các kiểu dữ liệu sau khi chuyển đổi
+str(cleaned_data)
+```
+
+Sau khi lọc dữ liệu, ta kiểm tra lại số quan trắc đã loại bỏ
+
+```{r}
+# Kiểm tra số lượng quan sát trước và sau khi loại bỏ ngoại lai
+(1 - nrow(cleaned_data)/nrow(raw_data))*100
+```
+
+\textbf{Nhận xét:} Sau khi tính toán, nhận thấy số quan trắc bị loại bỏ xấp xỉ 5% bộ dữ liệu nằm ở mức chấp nhận được (dưới 10%).
+
+\subsubsection{Kiểm tra lại giá trị ngoại lai đơn biến}
+
+```{r echo=FALSE, warning=FALSE, out.width = "120%"}
+#-----------------------------------
+# Loại bỏ các cột không cần thiết
+plot_data <- cleaned_data[,-c(2,11:17)]
+# Chuyển dữ liệu từ wide format sang long format sử dụng reshape2
+long_data <- reshape2::melt(plot_data, id.vars = NULL)
+
+# Tạo và hiển thị từng biểu đồ cho mỗi biến
+variables <- unique(long_data$variable)
+# Đảm bảo tất cả các giá trị trong cột 'value' là số
+long_data$value <- as.numeric(long_data$value)
+
+# Tạo và hiển thị từng biểu đồ cho mỗi biến
+variables <- unique(long_data$variable)
+
+for (var in variables) {
+  # Lọc dữ liệu cho biến hiện tại và loại bỏ các giá trị NA
+  data_var <- subset(long_data, variable == var & !is.na(value))
+  
+  p <- ggplot(data_var, aes(x = variable, y = value)) +
+    geom_jitter(width = 0.2, height = 0, alpha = 0.5) +
+    labs(title = paste("Dotplot with Jitter for", var),
+         x = var, y = "Value") +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    scale_y_continuous(limits = c(min(data_var$value, na.rm = TRUE), max(data_var$value, na.rm = TRUE)),
+                       breaks = pretty(data_var$value, n = 10))
+  
+  # Hiển thị biểu đồ
+  print(p)
+}
+```
+
+\textbf{Nhận xét:} Các giá trị ngoại lai đơn biến đã giảm đi đáng kể.
+
+\subsubsection{Kiểm tra lại giá trị ngoại lai nhiều chiều}
+
+```{r echo=FALSE}
+x <- cleaned_data[,-c(2,11:17)]
+
+# Compute column means and covariance matrix
+cm <- colMeans(x)
+S <- cov(x)
+
+# Compute Mahalanobis distances
+d <- apply(x, 1, function(x) t(x - cm) %*% solve(S) %*% (x - cm))
+
+# Convert distances to a data frame
+dist_data <- data.frame(distances = d)
+
+# Create the Q-Q plot
+ggplot(dist_data, aes(sample = distances)) +
+  stat_qq(distribution = qchisq, dparams = list(df = 10)) +
+  stat_qq_line(distribution = qchisq, dparams = list(df = 10), linetype = "dashed", color = "red") +
+  ggtitle("Chi-Square Q-Q Plot of Mahalanobis Distances") +
+  xlab(expression(paste(chi[10]^2, " Quantile"))) +
+  ylab("Ordered distances") +
+  theme_minimal()
+```
+
+\textbf{Nhận xét:} Biểu đồ không còn cho thấy giá trị ngoại lai nằm tách biệt như lúc ban đầu, dấu hiệu của giá trị ngoại lai nhiều chiều đã biến mất.
+
+\subsubsection{Kiểm tra lại phân phối trước và sau khi làm sạch outlier}
+
+```{r echo=FALSE, out.width = "120%"}
+numeric_vars <- colnames(cleaned_data)[sapply(cleaned_data, is.numeric)]
+
+density_plots <- lapply(numeric_vars, function(var) {
+
+  p1 <- ggplot(raw_data, aes(x = !!sym(var))) +
+    geom_density(fill = "blue", alpha = 0.5) +
+    labs(x = var, y = "Density", title = paste("Density Plot for", var, "(raw_data)")) +
+    theme_minimal()
+
+  p2 <- ggplot(cleaned_data, aes(x = !!sym(var))) +
+    geom_density(fill = "green", alpha = 0.5) +
+    labs(x = var, y = "Density", title = paste("Density Plot for", var, "(cleaned_data)")) +
+    theme_minimal()
+
+  list(p1, p2)
+})
+
+for (i in seq_along(density_plots)) {
+  print(density_plots[[i]][[1]])  # Print raw_data plot
+  print(density_plots[[i]][[2]])  # Print cleaned_data plot
+}
+```
+
+\textbf{Nhận xét:} Phân phối trước và sau khi làm sạch outlier không thay đồi gì nhiều (raw\_data và cleaned\_data), vẫn bảo toàn đặc trưng của dữ liệu.
+
+\section{Xây dựng mô hình}
+
+\subsection{Kiểm tra phân phối của dữ liệu}
+
+```{r echo=FALSE, out.width = "120%"}
+ggplot(cleaned_data, aes(x = rented_bike_count)) +
+    geom_density(fill = "green", alpha = 0.5) +
+    labs(x = "rented_bike_count", y = "Density", title = paste("Density Plot for rented_bike_count (cleaned_data)")) +
+    theme_minimal()
+```
+
+Do biến phản hồi rented_bike_count là biến đếm và giống như nhiều phân phối Poisson điển hình, đồ thị hàm mật độ bị lệch phải nên ta có thể áp dụng mô hình hồi quy Poisson cho biến này.
+
+
+```{r results = 'hide', message = FALSE, warning = FALSE, echo=FALSE}
+library(mgcv)
+library(MASS)
+library(car)
+library(ggfortify)
+library(mgcv)
+library(mgcViz)
+```
+
+\subsection{Xây dựng mô hình Poisson}
+
+```{=tex}
+\begin{itemize}
+    \item Xét $Y$ là biến ngẫu nhiên, ta nói $Y \sim \mathcal{P}(\lambda)$ với \\
+    $\ln(\lambda) = \beta_0 + \sum_{i=1}^{9} \beta_i X_i$
+
+    \item Để xây dựng mô hình dựa trên thông tin của một ngày (thời tiết, tính chất ngày nghỉ/làm việc), ta xây dựng mô hình với các biến: temperature\_c, humidity\_percen, wind\_speed\_m\_s, visibility\_10m, dew\_point\_temperature, solar\_radiation\_mj\_m2, rainfall\_mm, snowfall\_cm thể hiện cho thời tiết và biến holiday thể hiện cho tính chất ngày nghỉ/làm việc.
+
+    \item Từ đó ta có mô hình:
+    \begin{equation*}
+    \begin{cases}
+        Y \sim \mathcal{P}(\lambda) \\
+        \ln(\lambda) = \beta_0 + \beta_1 \cdot \text{temperature\_c} + \beta_2 \cdot \text{humidity\_percen} + \beta_3 \cdot \text{wind\_speed\_m\_s} + \beta_4 \cdot \text{visibility\_10m} \\
+        \quad + \beta_5 \cdot \text{dew\_point\_temperature} + \beta_6 \cdot \text{solar\_radiation\_mj\_m2} + \beta_7 \cdot \text{rainfall\_mm} \\
+        \quad + \beta_8 \cdot \text{snowfall\_cm} + \beta_9 \cdot \text{holiday}
+    \end{cases}
+    \end{equation*}
+\end{itemize}
+
+```
+```{r echo=FALSE}
+reg_data <- cleaned_data[,-c(14,15,16)]
+poisson.model_1 <- glm(rented_bike_count ~ temperature_c + humidity_percent + 
+                         wind_speed_m_s + visibility_10m + dew_point_temperature_c + 
+                         solar_radiation_mj_m2 + rainfall_mm + snowfall_cm + holiday, data = reg_data, family = poisson(link = "log"))
+poisson.model <- glm(rented_bike_count ~ ., data = reg_data, family = poisson(link = "log"))
+summary(poisson.model_1)
+```
+
+Để hiểu rõ hơn về ý nghĩa của các hệ số, ta tính exp() của các ước lượng hệ số, cũng chính là số lần tăng/giảm của trung bình theo từng biến khi biến đó tăng lên 1 đơn vị và các biến còn lại được giữ là hằng số:
+
+```{r echo = FALSE}
+(format(exp(coef(poisson.model_1)), scientific = FALSE))
+```
+
+\textbf{Nhận xét từ kết quả:}
+
+```{=tex}
+\begin{itemize}
+\item (Intercept): Hệ số chặn cho biết trung bình số lượng xe đạp thuê trung bình khi tất cả các biến độc lập bằng 0 là khoảng 2339. Con số này có thể không thực tế vì một số biến độc lập như nhiệt độ, độ ẩm, tốc độ gió,... không thể đồng thời bằng 0 trong thực tế. Tuy nhiên, nó cung cấp một điểm xuất phát để so sánh với các biến độc lập khác.
+\item  temperature\_c (Nhiệt độ C): Hệ số này cho biết với mỗi đơn vị tăng của nhiệt độ, trung bình số lượng xe đạp thuê giảm khoảng 0.23\% (1 - 0.9976708). Điều này chỉ ra rằng nhiệt độ cao hơn có thể làm giảm trung bình số lượng xe đạp thuê, có thể do điều kiện thời tiết không thoải mái. Nhưng ở phần trực quan hoá dữ liệu, ta thấy khi nhiết độ tăng thì lượng sẽ đạp thuê cũng tăng đến khoảng 28 độ thì mới bắt đầu giảm. Vì vậy ta thấy có sự mâu thuẩn giữa mô hình và thực tế, có thể do có sự tương tác của các biến, cần kiểm tra thêm. 
+\item humidity\_percent (Độ ẩm phần trăm): Hệ số này cho biết với mỗi đơn vị tăng của độ ẩm, trung bình số lượng xe đạp thuê giảm khoảng 2.89\% (1 - 0.9711038). Điều này cho thấy rằng độ ẩm cao hơn có thể làm giảm trung bình số lượng xe đạp thuê, có thể do độ ẩm cao làm cho việc đi xe đạp trở nên khó chịu.
+\item wind\_speed\_m\_s (Tốc độ gió m/s): Hệ số này cho biết với mỗi đơn vị tăng của tốc độ gió, trung bình số lượng xe đạp thuê tăng khoảng 8.25\% (1.0825144 - 1). Điều này chỉ ra rằng tốc độ gió cao hơn có thể làm tăng trung bình số lượng xe đạp thuê, có thể vì gió nhẹ có thể làm mát và tạo điều kiện thuận lợi hơn cho việc đi xe đạp.
+\item visibility\_10m (Tầm nhìn 10m): Hệ số này cho biết với mỗi đơn vị tăng của tầm nhìn, trung bình số lượng xe đạp thuê giảm rất ít, khoảng 0.0064\% (1 - 0.9999365). Điều này cho thấy rằng tầm nhìn có tác động rất nhỏ đến trung bình số lượng xe đạp thuê.
+\item dew\_point\_temperature\_c (Nhiệt độ điểm ngưỡng tạo sương mù $^{circ}$C): Hệ số này cho biết với mỗi đơn vị tăng của nhiệt độ điểm sương, trung bình số lượng xe đạp thuê tăng khoảng 5.78\% (1.0578275 - 1). Điều này chỉ ra rằng nhiệt độ điểm sương cao hơn có thể làm tăng trung bình số lượng xe đạp thuê, có thể vì điều kiện không khí ẩm mát mẻ làm cho việc đi xe đạp trở nên dễ chịu hơn.
+\item solar\_radiation\_mj\_m2 (Bức xạ mặt trời MJ/m²): Hệ số này cho biết với mỗi đơn vị tăng của bức xạ mặt trời, trung bình số lượng xe đạp thuê giảm khoảng 15\% (1 - 0.8499907). Điều này cho thấy rằng bức xạ mặt trời cao hơn có thể làm giảm trung bình số lượng xe đạp thuê, có thể vì ánh sáng mặt trời mạnh làm cho việc đi xe đạp trở nên khó chịu.
+\item rainfall\_mm (Lượng mưa mm): Hệ số này cho biết với mỗi đơn vị tăng của lượng mưa, trung bình số lượng xe đạp thuê giảm khoảng 56.02\% (1 - 0.4398124). Điều này cho thấy rằng lượng mưa cao hơn có thể làm giảm đáng kể trung bình số lượng xe đạp thuê, vì điều kiện thời tiết mưa không thuận lợi cho việc đi xe đạp.
+\item snowfall\_cm (Lượng tuyết cm): Hệ số này cho biết với mỗi đơn vị tăng của lượng tuyết, trung bình số lượng xe đạp thuê giảm khoảng 37.62\% (1 - 0.6237719). Điều này cho thấy rằng lượng tuyết cao hơn có thể làm giảm trung bình số lượng xe đạp thuê, do điều kiện tuyết không thuận lợi cho việc đi xe đạp.
+\item holiday (Ngày làm việc): Hệ số này cho biết trung bình số lượng xe đạp thuê vào các ngày làm việc (No Holiday) cao hơn khoảng 26.44\% so với vào các ngày nghỉ (Holiday). Điều này chỉ ra rằng vào ngày làm việc, người dân có xu hướng thuê xe đạp nhiều hơn so với các ngày nghỉ, có thể vì vào các ngày nghỉ, nhiều người không đi làm hoặc có kế hoạch khác, dẫn đến nhu cầu thuê xe đạp thấp hơn.
+\end{itemize}
+\subsubsection{Ma trận hiệp phương sai của các ước lượng hệ số được truy xuất bởi hàm vcov():}
+```
+
+```{r echo=FALSE}
+vcov(poisson.model_1)
+```
+
+Từ đây ta suy ra được sai số chuẩn của các ước lượng hệ số:
+
+```{r echo = FALSE}
+sqrt(diag(vcov(poisson.model)))
+```
+\textbf{Nhâ xét:} Sai số chuẩn của tất cả các biến là rất nhỏ, cho thấy có rất ít sự biến động của các ước lượng hệ số từ mẫu này sang mẫu khác, điều đó cho thấy sự đáng tin cậy của mô hình là cao.
+
+```{=tex}
+\subsubsection{Kiểm định từng hệ số:}
+Ta kiểm định từng hệ số với: 
+$$\begin{cases}
+H_0:    \beta_j = 0 \\
+H_1:    \beta_j \neq 0
+\end{cases}$$
+Kết quả kiểm định được trả về bởi hàm summary()
+```
+```{r echo=FALSE}
+summary(poisson.model_1)
+```
+
+\textbf{Nhận xét:} Kết quả cho thấy, tại mức ý nghĩa 5\%, tất cả các biến đều có ý nghĩa trong việc ước lượng mô hình.
+
+\subsubsection{Khoảng tin cậy cho hệ số và tỷ số cược chênh lệch:}
+
+Khoảng tin cậy 95\% cho các hệ số của mô hình Poisson log-linear:
+
+```{r echo=FALSE}
+confint.default(poisson.model_1, level = 0.95)
+```
+
+Từ đây, ta thu được khoảng tin cậy cho số lần tăng/giảm của trung bình theo từng biến khi biến đó tăng lên 1 đơn vị và các biến còn lại được giữ là hằng số, thông qua lấy exp() cho các điểm giới hạn của khoảng tin cậy cho hệ số mô hình.
+
+```{r echo=FALSE}
+exp(confint.default(poisson.model_1, level = 0.95))
+```
+
+\subsubsection{So sánh mô hình:}
+
+Để trả lời cho câu hỏi liệu ta xậy dựng mô hình dự đoán số lượng xe đạp trong ngày dựa trên thông tin của một ngày (thời tiết, tính chất ngày nghỉ/làm việc) có là mô hình tốt nhất thì ta sẽ đi kiểm định giả thuyết:
+
+```{=tex}
+$$\begin{cases}
+H_0 : \text{Mô hình ban đầu là phù hợp} \\
+H_1 : \text{Mô hình thêm các biến phụ là phù hợp hơn}
+\end{cases}$$
+```
+
+```{r echo=FALSE}
+anova(poisson.model_1,poisson.model,test = "Chisq")
+```
+
+\textbf{Nhận xét:} Từ kết quả ta thấy giá trị p\_value rất thấp nên ta bác bỏ giả thuyết $H_0$ hay mô hình thứ 2 phù hợp hơn.
+
+\subsubsection{Kiểm tra giả định $\mathbb{E}[Y] = Var[Y]$ cho mô hình 2}
+
+```{r echo=FALSE, out.width = "120%"}
+lambdahat <-fitted(poisson.model)
+par(mfrow=c(1,2), pty="s")
+plot(lambdahat,(reg_data$rented_bike_count-lambdahat)^2,
+     xlab=expression(hat(lambda)), ylab=expression((y-hat(lambda))^2 ))
+plot(lambdahat, resid(poisson.model,type="pearson"), 
+     xlab=expression(hat(lambda)), ylab="Pearson Residuals")
+```
+
+\textbf{Nhận xét:}
+
+```{=tex}
+\begin{itemize}
+\item Ở biểu đồ thứ nhất, phương sai có xu hướng tăng khi trung bình tăng. Điều này cho thấy có thể có hiện tượng overdispersion trong dữ liệu.
+\item Biểu đồ thứ hai cũng cho thấy thặng dư Pearson có khuôn mẫu giảm dần theo hình vòng cung khi trung bình tăng củng cố cho bằng chứng overdispersion.
+\end{itemize}
+\subsection{Kiểm tra overdispersion}
+```
+
+```{r echo=FALSE}
+Pearson <- sum((reg_data$rented_bike_count - poisson.model$fitted.values)^2 /poisson.model$fitted.values)
+
+disperson <- (Pearson / poisson.model$df.residual) |> 
+  print()
+```
+
+\textbf{Nhận xét:} Giá trị dispersion là 114.9298 quá lớn so với 1 nên mô hình này bị overdispered.
+
+Trong trường hợp mô hình Poisson thông thường xảy ra hiện tượng overdispersed, ở dữ liệu đã cho là trường hợp $var(Y) > \mathbb{E}[Y]$, ta sẽ nghĩ đến mô hình tổng quát hơn như Quasi-Poission.
+
+
+```{r results = 'hide', message = FALSE, warning = FALSE, echo=FALSE}
+library(mgcv)
+library(MASS)
+library(car)
+library(ggfortify)
+library(mgcv)
+library(mgcViz)
+library(magrittr)
+```
+
+\begin{itemize}
+\item  Xét $Y$ là biến ngẫu nhiên, ta nói $Y \sim Poi(\mu, \theta)$ nếu thỏa 
+$$\mathbb{E}[Y]= \mu \text{, } Var(Y) = \theta \mu $$
+ $$\theta > 1 \text{, } \mu > 0$$ 
+\item $\theta$ là hệ số thể hiện overdispersed. 
+\item Quan hệ giữa phương sai và kỳ vọng là quan hệ tuyến tính.
+\end{itemize}
+
+\subsection{Xây dựng mô hình Quasi-Poisson}
+
+```{r echo=FALSE}
+reg_data = cleaned_data[,-c(14,15,16)]
+quasipoisson.model <- glm(rented_bike_count~., data=reg_data, family = 'quasipoisson')
+summary(quasipoisson.model)
+```
+
+\textbf{Nhận xét:} Ta lại thấy giá trị p\_value của biến functioning\_day rất lớn, nó lại không có ý nghĩa trong mô hình Quasi-Poisson, và giá trước lượng của nó khi đưa vào mô mình log là rất cao, nên chúng em quyết định loại bỏ biến này ra khỏi mô hình.
+
+\subsubsection{Bỏ biến functioning\_day ra khỏi mô hình trên và kiểm tra đa cộng tuyến}
+
+```{r echo=FALSE}
+reg_data <- cleaned_data[,-c(13,14,15,16)]
+quasipoisson.model <- glm(rented_bike_count~., data=reg_data, family = quasipoisson(link = "log"))
+vif(quasipoisson.model)
+```
+
+\textbf{Nhận xét:} Kết quả ở cột thứ ba cho thấy biến temperature\_c và biến dew\_point\_temperature\_c có chỉ số VIF rất cao (lớn hơn 7) chứng minh mô hình có hiện tượng đa cộng tuyến nên ta cũng sẽ bỏ hai biến ra khỏi mô hình .
+
+Loại bỏ 2 biến đa cộng tuyến,kiểm tra lại sự đa cộng tuyến và ý nghĩa của các hệ số:
+
+```{r echo=FALSE}
+reg_data <- cleaned_data[,-c(3,7,13,14,15,16)]
+quasipoisson.model <- glm(rented_bike_count~., data=reg_data, family = 'quasipoisson')
+vif(quasipoisson.model)
+```
+
+\textbf{Nhận xét:} Sau khi loại bỏ hai biến trên, kiểm định đều cho thấy hầu như các biến đều có nghĩa  và chỉ số VIF khi này đã bình thường.
+
+\section{Chuẩn đoán mô hình}
+
+\subsection{Giả định tuyến tính của mô hình}
+
+```{r echo=FALSE, out.width = "120%"}
+quasipoisson.model
+autoplot(quasipoisson.model, which = 1, ncol = 1)
+```
+
+\textbf{Nhận xét:}  Ở biểu đồ residual vs fitted, do đường thẳng ước lượng nằm ngang nên giả định tuyến tính của mô hình là thỏa.
+
+\subsection{Giả định phân phối chuẩn của thặng dư}
+
+```{r echo=FALSE, out.width = "120%"}
+autoplot(quasipoisson.model, which = 2, ncol = 1)
+```
+
+\textbf{Nhận xét:} Biểu đồ QQ-plot của thặng dư có sự lệch chuẩn ở 2 đuôi nên phải dùng biểu đồ histogram để kiểm tra kĩ hình dạng của phân phối rõ ràng hơn.
+
+```{r echo =FALSE, out.width = "120%"}
+# Trích xuất residuals từ mô hình
+residuals <- residuals(quasipoisson.model, type = "pearson")
+
+# Tạo dữ liệu cho ggplot
+residuals_data <- data.frame(residuals = residuals)
+
+# Vẽ histogram của residuals
+ggplot(residuals_data, aes(x = residuals)) +
+  geom_histogram(binwidth = 0.5, fill = 'dodgerblue3', color = 'black', alpha = 0.7) +
+  labs(title = "Histogram of Residuals",
+       x = "Residuals",
+       y = "Frequency") +
+  theme_minimal()
+```
+
+\textbf{Nhận xét:} Thặng dư rõ ràng không tuân theo phân phối chuẩn do có đuôi bên phải dài.
+
+\subsection{Giả định đồng nhất phương sai}
+
+```{r echo=FALSE, out.width = "120%"}
+autoplot(quasipoisson.model, which = 3, ncol = 1)
+```
+
+\textbf{Nhận xét:} Có thể thấy giả định phương sai đồng nhất bị vi phạm do đường thẳng ước lượng có dạng hình chéo.
+
+\subsection{Kiểm tra outlier của mô hình}
+
+```{r echo=FALSE, out.width = "120%"}
+autoplot(quasipoisson.model, which = 4, ncol = 1)
+```
+
+\textbf{Nhận xét:} Biểu đồ tần số cho thấy các điểm thặng dư có khoảng cách cook cao nhất là 4756,5622,5777.
+
+```{r echo=FALSE, out.width = "120%"}
+autoplot(quasipoisson.model, which = 5, ncol = 1)
+```
+\textbf{Nhận xét:} Biểu đồ residual vs leverage cho thấy các điểm 4756,5622,5777 là các điểm có giá trị thặng dư cao (khoảng cách Cook càng lớn thì thặng dư càng lớn) nhưng mà do leverage của các điểm này quá thấp nên chúng không được coi là các điểm ảnh hưởng đến mô hình (influential point) nên không cần loại bỏ.
+
+```{r echo=FALSE, out.width = "120%"}
+plot(quasipoisson.model, which = 6)
+```
+
+\textbf{Nhận xét:} Biểu đồ khoảng cách cook vs leverage*$h_{ii}(1 - h_{ii})$ cho thấy điểm 4756,5622,5777 là các điểm có khoảng cách Cook lớn nên chúng sẽ nằm gần các đường nét đứt biểu thị các điểm thặng dư có giá trị cao với giá trị thặng dư tương ứng được đánh dấu ở phía trên đường nét đứt (10, 15, 20, 25). Giống như biểu đồ residual vs leverage các điểm này mặc dù có thặng dư cao hơn hẳn so với phần còn lại nhưng giá trị leverage quá thấp nên không được coi là các điểm ảnh hưởng đến mô hình nên không cần loại bỏ.
+
+\subsection{Giả định thặng dư từng phần}
+
+```{r echo=FALSE, out.width = "120%"}
+crPlots(quasipoisson.model)
+```
+
+\textbf{Nhận xét:} Tất cả các biểu đồ trên cho thấy các đường ước lượng của các biến định lượng gần như nằm ngang và giá trị trung vị của các biến định tính đều xấp xỉ 0 chỉ duy nhất đường ước lượng của biến rainfall\_mm là đường cong.
+
+```{r echo=FALSE, out.width = "120%"}
+crPlots(quasipoisson.model,"rainfall_mm")
+```
+
+\textbf{Nhận xét:} Vậy giả định thặng dư của biến rainfall\_mm tuyến tính từng phần bị vi phạm. Vậy nhóm sẽ chuyển sang mô hình GAM để thêm tính phi tuyến cho biến này.
+
+\section{Mở rộng mô hình}
+
+```{r echo=FALSE}
+gam.model <- gam(rented_bike_count ~ s(rainfall_mm) +hour + snowfall_cm  + wind_speed_m_s
+                   + humidity_percent +solar_radiation_mj_m2 + seasons + visibility_10m
+                 + holiday + day_of_week , data = reg_data, family = 'quasipoisson')
+summary(gam.model)
+```
+
+\textbf{Nhận xét:} Hầu như tất cả các biến đều có nghĩa. Và để ý rằng bậc 8 đã được chọn để mô hình hóa biến rainfall\_mm.
+
+\subsection{Chẩn đoán mô hình mở rộng}
+
+```{r echo=FALSE}
+gratia::appraise(gam.model)
+```
+
+\textbf{Nhận xét:} Vẫn giống như khi chưa mở rộng mô hình chỉ có giả định đồng nhất phương sai bị vi phạm.
+
+```{r echo=FALSE, out.width = "120%"}
+plot(gam.model, pages = 9, residuals=TRUE, all.terms = TRUE)
+```
+
+\textbf{Nhận xét:} 
+
+```{=tex}
+\begin{itemize}
+\item Giả định thặng dư của rainfall\_mm tuyến tính từng phần đã được thỏa.
+\item Thặng dư của các biến định lượng còn lại cũng nằm trong khoảng 2 đường nét đứt cho phép nên thỏa giả định tuyến tính từng phần.
+\item Thặng dư của các biến định tính lệch rất ít so với đường y = 0 nên cũng coi như thỏa.
+\end{itemize}
+Ngoài ra, theo em thì giả định đồng nhất phương sai có thể khắc phục khi cho thêm tham số weight vào mô hình GAM nhưng nó sẽ gây ảnh hưởng đến các giả định khác nên nhóm em sẽ quyết định kết thúc phần mở rộng mô hình tại đây và chọn cách xử lí vừa rồi là phương án tốt nhất.
+\section{Diễn giải mô hình}
+Ở phần này, nhóm sẽ sử dụng thư viện DALEXtra, được cài đặt theo phương pháp SHAP - Shapley Additive Explanations, một phương pháp phổ biến trong lĩnh vực diễn giải mô hình.
+\subsection{Khai báo thư viện}
+```
+
+```{r results = 'hide', message = FALSE, warning = FALSE, echo=FALSE}
+library(DALEXtra)
+library(caTools)
+library(forcats)
+```
+
+\subsection{Ngày lễ Halloween}
+
+```{r echo=FALSE}
+# Predictions for the whole day
+newdata <- cleaned_data %>% filter(day == 31, month == 10, year == 2018)
+predictions <- predict(gam.model, newdata = newdata, type = "response")
+cat("Predicted total:", sum(predictions), "\n")
+cat("Actual total:", sum(newdata$rented_bike_count), "\n")
+```
+
+\textbf{Nhận xét:} Kết cho ta giá trị dự đoán trung bình lượng xe được thuê trong ngày Halowen là 22226.04, giá trị dự đoán cao hơn thực tế nhiều (Khoảng 682 xe)
+\subsection{Tính toán khoảng tin cậy cho giá trị dự đoán:}
+
+```{r echo=FALSE}
+predictions<- predict(gam.model, newdata = newdata,
+                       se.fit = TRUE)
+
+# Tính khoảng tin cậy
+alpha <- 0.05
+crit_value <- qnorm(1 - alpha / 2)
+lower_bound <- predictions$fit - crit_value * predictions$se.fit
+upper_bound <- predictions$fit + crit_value * predictions$se.fit
+cre = cbind(sum(exp(lower_bound)),sum(exp(upper_bound)))
+# Tạo khung dữ liệu để vẽ
+results <- data.frame(
+  rainfall_mm = newdata$rainfall_mm,
+  fit = predictions$fit,
+  lower = lower_bound,
+  upper = upper_bound
+)
+
+print(cbind(cre, sum(newdata$rented_bike_count)))
+```
+
+\textbf{Nhận xét:} Với khoảng tin cậy trên, ta thấy giá trị thực trung bình lượng xe thuê trong ngày Halowen nằm trong sự dao động của giá trị dư đoán
+
+
+
+```{r echo=FALSE, out.width = "120%"}
+predictions <- predict(gam.model, newdata = newdata, type = "link", se.fit = TRUE)
+fit <- predictions$fit
+se <- predictions$se.fit
+lower_ci <- exp(fit - 1.96 * se)
+upper_ci <- exp(fit + 1.96 * se)
+
+
+# Plot the observed counts vs predicted counts with confidence intervals
+plot(newdata$rented_bike_count, exp(fit), 
+     xlab = "Observed Counts", 
+     ylab = "Predicted Counts", 
+     main = "Predicted Counts with Confidence Intervals")
+abline(a = 0, b = 1, col = "red")
+arrows(newdata$rented_bike_count, lower_ci, newdata$rented_bike_count, upper_ci, 
+       angle = 90, code = 3, length = 0.1, col = "blue")
+```
+
+\textbf{Nhận xét:} Với đồ thị trên, ta thấy các giá trị dự đoán vẫn còn nhiều điểm nằm khá xa đường đỏ (mô tả cho giá trị thực) nhưng vì các giá trị này phân bố với các biến nằm trên và dưới, nên khi dự đoán cho một ngày thì giá trị dự đoán lương xe thuê trong một ngày cũng khá gần giá trị thực.
+\textbf{Dự đoán lượng xe thuê vào 16 giờ ngày Halloween}
+
+```{r echo=FALSE}
+reg_data <- cleaned_data[,-c(3,7,13,14,15,16)]
+# Create explainer
+features <- colnames(reg_data[,-1])
+sample <- reg_data |>  dplyr::select(all_of(features))
+explainer_gam <- explain_tidymodels(
+  gam.model, 
+  data = sample, 
+  y = reg_data$rented_bike_count,
+  label = "gam + interactions",
+  verbose = FALSE
+)
+
+# Get data for specific date
+bike_31102018 <- cleaned_data %>% 
+  filter(day == 31, month == 10, year == 2018) %>% 
+  slice(17)
+actual_count_31102018 <- bike_31102018$rented_bike_count
+
+# Predict parts
+gam_breakdown <- predict_parts(explainer = explainer_gam, new_observation = bike_31102018)
+
+# Combine with actual value
+breakdown_with_actual <- gam_breakdown %>%
+  bind_rows(tibble(
+    variable = "Observed Value",
+    contribution = actual_count_31102018,
+    variable_name = "Observed Value"
+  ))
+
+# Display result
+print(breakdown_with_actual)
+```
+
+\textbf{Nhận xét:}
+
+\begin{itemize}
+\item Bảng tổng hợp cho thấy giá trị của các biến dự đoán trong ngày giáng sinh và thể hiện các đóng góp của chúng vào kết quả cuối cùng ở cột contribution (cộng các giá trị đóng góp của biến dự đoán sẽ có được giá trị dự đoán).
+\item Hai dòng cuối cùng sẽ cho thấy giá trị dự đoán và giá trị quan sát để so sánh. Ta có thể nhận thấy sai số là khá lớn (hơn 33 xe), với lượng chênh lệch này ta thấy mô hình dự đoán khá là tốt.
+\end{itemize}
+
+\textbf{Trực quan hóa kết quả}
+
+```{r echo =FALSE, out.width = "120%"}
+shap_bike <- 
+  predict_parts(
+    explainer = explainer_gam, 
+    new_observation = bike_31102018, 
+    type = "shap",
+    B = 20
+  )
+shap_bike |>
+  group_by(variable) |>
+  mutate(mean_val = mean(contribution)) |>
+  ungroup()  |> 
+  mutate(variable = fct_reorder(variable, abs(mean_val))) |>
+  ggplot(aes(contribution, variable, fill = mean_val > 0)) +
+  geom_col(data = ~distinct(., variable, mean_val), 
+           aes(mean_val, variable), 
+           alpha = 0.5) +
+  geom_boxplot(width = 0.5) +
+  theme(legend.position = "none") +
+  scale_fill_viridis_d() +
+  labs(y = NULL)
+```
+\textbf{Nhận xét:} Biến có màu tím sẽ có đóng góp âm (wind\_speed\_m\_s) và các biến còn lại màu vàng sẽ có đóng góp dương đối với giá trị dự đoán. Boxplot càng lớn thể hiện mức độ ảnh hưởng càng lớn, ở biểu đồ trên ta thấy biến hour, season có đóng góp rất lớn vào mô hình. 
+
+\subsubsection{Mức độ ảnh hưởng của từng biến}
+
+```{r echo=FALSE, out.width = "120%"}
+# Variable importance
+gam <- model_parts(explainer_gam, loss_function = loss_root_mean_square)
+ggplot_imp <- function(...) {
+  obj <- list(...)
+  metric_name <- attr(obj[[1]], "loss_name")
+  metric_lab <- paste(metric_name, 
+                      "after permutations\n(higher indicates more important)")
+  
+  full <- bind_rows(obj) |>
+    filter(variable != "_baseline_")
+  
+  perm_vals <- full |> 
+    filter(variable == "_full_model_") |> 
+    group_by(label) |> 
+    summarise(dropout_loss = mean(dropout_loss))
+  
+  p <- full |>
+    filter(variable != "_full_model_") |> 
+    mutate(variable = fct_reorder(variable, dropout_loss)) |>
+    ggplot(aes(dropout_loss, variable)) 
+  if(length(obj) > 1) {
+    p <- p + 
+      facet_wrap(vars(label)) +
+      geom_vline(data = perm_vals, aes(xintercept = dropout_loss, color = label),
+                 linewidth = 1.4, lty = 2, alpha = 0.7) +
+      geom_boxplot(aes(color = label, fill = label), alpha = 0.2)
+  } else {
+    p <- p + 
+      geom_vline(data = perm_vals, aes(xintercept = dropout_loss),
+                 linewidth = 1.4, lty = 2, alpha = 0.7) +
+      geom_boxplot(fill = "#91CBD765", alpha = 0.4)
+    
+  }
+  p +
+    theme(legend.position = "none") +
+    labs(x = metric_lab, 
+         y = NULL,  fill = NULL,  color = NULL)
+}
+ggplot_imp(gam)
+```
+
+\textbf{Nhận xét:}
+
+\begin{itemize}
+\item Độ quan trọng của các biến tăng dần theo khoảng cách từ biểu đồ boxplot của chúng tới đường nét gạch. Trong đó 3 biến quan trọng nhất là hour, season và rainfall\_mm.
+\item Đường đứt đoạn trong biểu đồ thể hiện RMSE cho mô hình. Các đặc trưng càng nằm về phía bên phải càng quan trọng, bởi vì việc hoán vị chúng dẫn đến RMSE cao hơn.
+\end{itemize}
+
+\subsection{Biểu đồ ảnh hưởng của lượng mưa phân theo mùa}
+Biểu đồ tổng hợp
+
+```{r echo=FALSE, out.width = "120%"}
+custom_colors <- c("#0072B2", "#D55E00", "#009E73", "#CC79A7")
+
+ggplot_pdp <- function(obj, x) {
+  
+  p <- 
+    as_tibble(obj$agr_profiles) |>
+    mutate(`_label_` = stringr::str_remove(`_label_`, "^[^_]*_")) |>
+    ggplot(aes(`_x_`, `_yhat_`)) +
+    geom_line(data = as_tibble(obj$cp_profiles),
+              aes(x = {{ x }}, group = `_ids_`),
+              linewidth = 0.5, alpha = 0.05, color = "gray50")
+  
+  num_colors <- n_distinct(obj$agr_profiles$`_label_`)
+  
+  if (num_colors > 1) {
+    p <- p + geom_line(aes(color = `_label_`), linewidth = 1.2, alpha = 0.8)
+  } else {
+    p <- p + geom_line(color = "midnightblue", linewidth = 1.2, alpha = 0.8)
+  }
+  
+  p
+}
+
+
+pdp_rain_season <- model_profile(explainer_gam, N = nrow(reg_data), 
+                               variables = "rainfall_mm", 
+                               groups = "seasons")
+
+
+ggplot_pdp(pdp_rain_season, rainfall_mm) +
+  scale_color_manual(values = custom_colors) +
+  labs(x = "Rainfall_mm", 
+       y = "Rented Bike Count", 
+       color = NULL)
+```
+
+\textbf{Nhận xét:} Vùng xám đen trên biểu đồ thể hiện mức độ ảnh hưởng của hiệu ứng, đường seasons trên biểu đồ thể hiện sự chênh lệch giữa số xe đạp được thuê theo mùa. Cụ thể, ta có thể thấy rõ sự khác biệt khi xe thuê theo lượng mưa vào mùa hè luôn luôn cao hơn so với số xe thuê theo lượng mưa vào mùa đông.
+
+\subsection{Trực quan hóa ảnh hưởng của lượng mưa theo từng mùa}
+
+```{r echo=FALSE, out.width = "120%"}
+as_tibble(pdp_rain_season$agr_profiles) |>
+  mutate(seasons = stringr::str_remove(`_label_`, "gam_")) |>
+  ggplot(aes(`_x_`, `_yhat_`, color = seasons)) +
+  geom_line(linewidth = 1.2, alpha = 0.8, show.legend = FALSE) +
+  facet_wrap(~seasons) +
+  scale_color_manual(values = custom_colors) +
+  labs(x = "rainfall_mm", 
+       y = "rented_bike_count", 
+       color = NULL)
+```
+
+\textbf{Nhận xét:} Số lượng xe được thuê theo biến lượng mưa nhóm theo mùa đều có chung một khuôn mẫu (đồ thị giống nhau ở từng biểu đồ).
+
+\section{Tài Liệu Tham Khảo}
+
+\begin{enumerate}
+    \item Applied Multivariate Statistical Analysis, Richard Johnson \& Dean Wichern, Sixth Edition.
+    \item An Introduction to Applied Multivariate Analysis with R, Brian Everitt \& Torsten Hothorn.
+    \item \textit{Link:} \url{https://digitalcommons.unl.edu/cgi/viewcontent.cgi?article=1141&context=usdeptcommercepub}
+    \item \textit{Link:} \url{https://rpubs.com/Julian_Sampedro/1047952}
+    \item \textit{Link:} \url{https://www.tmwr.org/explain}
+    \item \textit{Link:} \url{https://www.sagepub.com/sites/default/files/upm-binaries/38503_Chapter6.pdf}
+    \item \textit{Link:} \url{https://mfasiolo.github.io/mgcViz/reference/check.gamViz.html}
+\end{enumerate}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

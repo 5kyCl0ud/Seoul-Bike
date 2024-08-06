@@ -1,0 +1,11 @@
+
+  bookdown::pdf_document2:
+    toc: no
+    keep_tex: yes
+    fig_caption: no
+    includes:
+      in_header: latex/preamble.tex
+    latex_engine: pdflatex
+    extra_dependencies: 
+    - flafter
+    - url
