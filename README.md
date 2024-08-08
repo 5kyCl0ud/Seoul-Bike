@@ -33,7 +33,7 @@ The dataset used in this project is related to the Seoul Bike Share program, cov
 - **Snowfall**: Snowfall in centimeters (cm)
 - **Seasons**: The season of the year (Winter, Spring, Summer, Autumn)
 - **Holiday**: Whether the day is a holiday or not (Holiday/ No holiday)
-- **Functional Day**: Whether the day is a functional working day or not (Non Functional Hours, Functional hours)
+- **Functioning Day**: Whether the day is a functional working day or not (Non Functional Hours, Functional hours)
 
 ### Data Source
 
@@ -41,19 +41,14 @@ The data is sourced from the Seoul Bike Share program and is available on [Kaggl
 
 ### Data Preprocessing
 
-1. **Handling Missing Values**: Missing values in the dataset have been addressed using appropriate methods such as imputation with mean values or removal of rows with missing data.
-2. **Data Transformation**: Categorical variables such as seasons and holidays have been converted into binary variables to fit the regression model.
-3. **Feature Engineering**: New features have been created from existing variables, such as hour of the day, to enhance the analysis.
+1. **Missing Values**: Data doesn't contain missing values.
+2. **Outliers**: We using z-score to hanle univariate outliers and mahalanobis distance to handle multivariate outliers.
+3. **Feature Engineering**: New features have been created from existing variables, such as day, month, year, day_of_week to enhance the analysis.
 
 
 ## Methodology
-[Explain the statistical processing and general linear model techniques used in the project]
+We first use poisson model for modelling but it is not suitable because of overdispersion so we use quasi-poisson model instead.
+Then, we use SHAP method to visualize and explain model results
 
-## Results
-[Summarize the key findings and results of the project]
 
-## Contributing
-[Explain how others can contribute to the project]
 
-## License
-[Specify the license under which the project is released]
