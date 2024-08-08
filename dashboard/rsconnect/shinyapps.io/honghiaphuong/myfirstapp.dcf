@@ -1,0 +1,12 @@
+name: myfirstapp
+title: myfirstapp
+username: honghiaphuong
+account: honghiaphuong
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 12384847
+bundleId: 8925838
+url: https://honghiaphuong.shinyapps.io/myfirstapp/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
