@@ -131,7 +131,6 @@
 \urlstyle{same}
 \hypersetup{
   pdftitle={Đồ án Cuối kì môn Mô Hình Thống Kê Tuyến Tính Nâng Cao},
-  pdfauthor={Nhóm D},
   hidelinks,
   pdfcreator={LaTeX via pandoc}}
 
@@ -143,8 +142,8 @@
 }
 \makeatother
 \subtitle{Seoul Bike Data Processing}
-\author{Nhóm D\footnote{Hồ Phạm Nghĩa Phương, Đàm Thị Hà, Đoàn Thị Kỳ Duyên, Trường Đại học Khoa học Tự nhiên, Đại học Quốc gia Thành phố Hồ Chí Minh.}}
-\date{}
+\author{}
+\date{\vspace{-2.5em}}
 
 \begin{document}
 \maketitle
@@ -579,12 +578,6 @@ H_1:    \beta_j \neq 0
 \end{cases}$$
 Kết quả kiểm định được trả về bởi hàm summary()
 
-\begin{Shaded}
-\begin{Highlighting}[]
-\FunctionTok{summary}\NormalTok{(poisson.model\_1)}
-\end{Highlighting}
-\end{Shaded}
-
 \begin{verbatim}
 ## 
 ## Call:
@@ -882,15 +875,15 @@ Loại bỏ 2 biến đa cộng tuyến,kiểm tra lại sự đa cộng tuyến
 
 \begin{center}\includegraphics[width=1.2\linewidth,]{Final_Project_files/figure-latex/unnamed-chunk-36-1} \end{center}
 
-\textbf{Nhận xét:} Biểu đồ tần số cho thấy các điểm thặng dư có khoảng cách cook cao nhất là 5078,5962,6117.
+\textbf{Nhận xét:} Biểu đồ tần số cho thấy các điểm thặng dư có khoảng cách cook cao nhất là 4756,5622,5777.
 
 \begin{center}\includegraphics[width=1.2\linewidth,]{Final_Project_files/figure-latex/unnamed-chunk-37-1} \end{center}
 
-\textbf{Nhận xét:} Biểu đồ residual vs leverage cho thấy các điểm 5078,5962,6117 là các điểm có giá trị thặng dư cao (khoảng cách Cook càng lớn thì thặng dư càng lớn) nhưng mà do leverage của các điểm này quá thấp nên chúng không được coi là các điểm ảnh hưởng đến mô hình (influential point) nên không cần loại bỏ.
+\textbf{Nhận xét:} Biểu đồ residual vs leverage cho thấy các điểm 4756,5622,5777 là các điểm có giá trị thặng dư cao (khoảng cách Cook càng lớn thì thặng dư càng lớn) nhưng mà do leverage của các điểm này quá thấp nên chúng không được coi là các điểm ảnh hưởng đến mô hình (influential point) nên không cần loại bỏ.
 
 \begin{center}\includegraphics[width=1.2\linewidth,]{Final_Project_files/figure-latex/unnamed-chunk-38-1} \end{center}
 
-\textbf{Nhận xét:} Biểu đồ khoảng cách cook vs leverage*\(h_{ii}(1 - h_{ii})\) cho thấy điểm 5078,5962,6117 là các điểm có khoảng cách Cook lớn nên chúng sẽ nằm gần các đường nét đứt biểu thị các điểm thặng dư có giá trị cao với giá trị thặng dư tương ứng được đánh dấu ở phía trên đường nét đứt (10, 15, 20, 25). Giống như biểu đồ residual vs leverage các điểm này mặc dù có thặng dư cao hơn hẳn so với phần còn lại nhưng giá trị leverage quá thấp nên không được coi là các điểm ảnh hưởng đến mô hình nên không cần loại bỏ.
+\textbf{Nhận xét:} Biểu đồ khoảng cách cook vs leverage*\(h_{ii}(1 - h_{ii})\) cho thấy điểm 4756,5622,5777 là các điểm có khoảng cách Cook lớn nên chúng sẽ nằm gần các đường nét đứt biểu thị các điểm thặng dư có giá trị cao với giá trị thặng dư tương ứng được đánh dấu ở phía trên đường nét đứt (10, 15, 20, 25). Giống như biểu đồ residual vs leverage các điểm này mặc dù có thặng dư cao hơn hẳn so với phần còn lại nhưng giá trị leverage quá thấp nên không được coi là các điểm ảnh hưởng đến mô hình nên không cần loại bỏ.
 
 \subsection{Giả định thặng dư từng phần}
 

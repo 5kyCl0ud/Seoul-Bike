@@ -1,8 +1,6 @@
 ---
 title: "Đồ án Cuối kì môn Mô Hình Thống Kê Tuyến Tính Nâng Cao"
 subtitle: "Seoul Bike Data Processing"
-author:
-  - Nhóm D^[Hồ Phạm Nghĩa Phương, Đàm Thị Hà, Đoàn Thị Kỳ Duyên, Trường Đại học Khoa học Tự nhiên, Đại học Quốc gia Thành phố Hồ Chí Minh.]
 documentclass: article
 papersize: letter
 fontsize: 11pt
